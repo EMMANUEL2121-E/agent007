@@ -1,0 +1,1005 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Retro Spy Terminal OS v3.5</title>
+    
+    <!-- PWA Settings -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#000000">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="SpyOS">
+    <link rel="apple-touch-icon" href="icon-192.svg">
+
+    <style>
+        :root {
+            /* Theme Variables */
+            --term-color: #33ff00;
+            --term-color-dim: #1a8000;
+            --term-bg: #050505;
+            --term-glow: 0 0 10px rgba(51, 255, 0, 0.7);
+            --alert-color: #ff3333;
+            --alert-glow: 0 0 10px rgba(255, 51, 51, 0.7);
+            --font-stack: 'Courier New', Courier, monospace;
+        }
+
+        /* --- Global Reset --- */
+        * { box-sizing: border-box; }
+        
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            background-color: var(--term-bg);
+            overflow: hidden;
+            font-family: var(--font-stack);
+            color: var(--term-color);
+            -webkit-font-smoothing: none;
+            transition: color 0.5s, background-color 0.5s;
+            /* Disable pull-to-refresh on mobile */
+            overscroll-behavior-y: none;
+        }
+
+        /* --- Effects Layer --- */
+        #crt-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1000;
+            background: linear-gradient(rgba(18, 16, 16, 0) 50%, rgba(0, 0, 0, 0.25) 50%), 
+                        linear-gradient(90deg, rgba(255, 0, 0, 0.06), rgba(0, 255, 0, 0.02), rgba(0, 0, 255, 0.06));
+            background-size: 100% 2px, 3px 100%;
+            animation: flicker 0.15s infinite;
+        }
+
+        #screen-vignette {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            box-shadow: inset 0 0 100px rgba(0,0,0,0.9); pointer-events: none; z-index: 999;
+        }
+
+        /* --- Layout --- */
+        #main-container {
+            display: flex; flex-direction: column; height: 100%; position: relative; z-index: 10;
+        }
+
+        #terminal {
+            flex-grow: 1; padding: 20px; overflow-y: auto;
+            text-shadow: var(--term-glow); font-size: 16px; line-height: 1.5;
+            transition: filter 0.3s;
+        }
+        
+        #terminal.blurred { filter: blur(5px) brightness(0.5); pointer-events: none; }
+
+        /* --- News Ticker --- */
+        #news-ticker {
+            height: 30px; border-top: 1px solid var(--term-color-dim);
+            background: #000; overflow: hidden; white-space: nowrap;
+            display: flex; align-items: center; font-size: 14px;
+        }
+        .ticker-content {
+            display: inline-block; padding-left: 100%;
+            animation: ticker 20s linear infinite; color: var(--term-color-dim);
+        }
+
+        /* --- Typography --- */
+        .log-line { margin-bottom: 4px; white-space: pre-wrap; word-wrap: break-word; }
+        .system-msg { color: #fff; text-shadow: 0 0 5px #fff; }
+        .error-msg { color: var(--alert-color); text-shadow: var(--alert-glow); }
+        .info-msg { color: #ffff33; }
+        .dim { color: var(--term-color-dim); }
+        .dir { color: #55aaff; font-weight: bold; }
+        .exec { color: #ff55ff; }
+
+        /* --- Input Area --- */
+        #input-line { display: flex; align-items: center; margin-top: 10px; }
+        .prompt { margin-right: 8px; font-weight: bold; }
+        #hidden-input { position: absolute; opacity: 0; top: 0; left: 0; height: 0; width: 0; }
+        
+        .cursor {
+            display: inline-block; width: 10px; height: 1.2em;
+            background-color: var(--term-color); vertical-align: text-bottom;
+            animation: blink 1s step-end infinite; margin-left: 2px;
+        }
+        .cursor.typing { animation: none; opacity: 1; }
+
+        /* --- App Layer --- */
+        #app-layer {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 50;
+            display: none; background: #000; padding: 20px;
+        }
+        .app-view {
+            width: 100%; height: 100%; display: none; flex-direction: column;
+            border: 2px solid var(--term-color-dim); padding: 20px; position: relative;
+        }
+        .app-header {
+            border-bottom: 1px solid var(--term-color); margin-bottom: 20px;
+            padding-bottom: 10px; display: flex; justify-content: space-between;
+            text-transform: uppercase; font-weight: bold;
+        }
+
+        /* --- Modules --- */
+        #camera-feed video { width: 100%; height: 100%; object-fit: cover; filter: sepia(100%) hue-rotate(50deg) saturate(300%) contrast(1.2); }
+        
+        #hack-game { font-family: monospace; text-align: center; justify-content: center; }
+        .hack-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; max-width: 300px; margin: 0 auto; }
+        .hack-cell { border: 1px solid var(--term-color); padding: 10px; cursor: pointer; }
+        .hack-cell:hover { background: var(--term-color); color: #000; }
+
+        /* --- Timer App Styles --- */
+        #app-timer { text-align: center; justify-content: center; align-items: center; }
+        .timer-display { font-size: 5em; font-family: monospace; margin: 20px 0; letter-spacing: 5px; text-shadow: 0 0 20px var(--term-color); }
+        .timer-inputs { display: flex; gap: 20px; justify-content: center; margin-bottom: 20px; }
+        .timer-input-group { display: flex; flex-direction: column; align-items: center; }
+        .timer-input { 
+            background: transparent; border: 2px solid var(--term-color); color: var(--term-color); 
+            font-family: inherit; font-size: 1.5em; width: 80px; text-align: center; padding: 10px; outline: none;
+        }
+        .timer-input:focus { background: rgba(51, 255, 0, 0.1); box-shadow: 0 0 15px var(--term-color); }
+        .btn-start { 
+            background: var(--term-color); color: #000; border: none; padding: 10px 30px; 
+            font-family: inherit; font-size: 1.2em; font-weight: bold; cursor: pointer; margin-top: 20px;
+        }
+        .btn-start:hover { opacity: 0.8; }
+
+        /* --- Animations --- */
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+        @keyframes flicker { 0% { opacity: 0.97; } 50% { opacity: 0.99; } 100% { opacity: 0.94; } }
+        @keyframes ticker { 0% { transform: translate3d(0, 0, 0); } 100% { transform: translate3d(-100%, 0, 0); } }
+
+        /* Mobile */
+        @media (max-width: 600px) { 
+            #terminal { font-size: 14px; padding: 10px; } 
+            .timer-display { font-size: 3em; }
+            .timer-input { width: 60px; font-size: 1.2em; }
+        }
+    </style>
+</head>
+<body>
+    <div id="crt-overlay"></div>
+    <div id="screen-vignette"></div>
+
+    <div id="main-container">
+        <!-- Terminal -->
+        <div id="terminal" onclick="document.getElementById('hidden-input').focus()">
+            <div id="output-history"></div>
+            <div id="input-line" style="display:none;">
+                <span id="prompt-label" class="prompt">></span>
+                <span id="rendered-input"></span><span class="cursor"></span>
+            </div>
+            <input type="text" id="hidden-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+        </div>
+
+        <!-- News Ticker -->
+        <div id="news-ticker">
+            <div class="ticker-content" id="ticker-text">INITIALIZING GLOBAL INTEL FEED... WAITING FOR SATELLITE UPLINK...</div>
+        </div>
+    </div>
+
+    <!-- Hidden File Input for Uploads -->
+    <input type="file" id="file-uploader" style="display:none;">
+
+    <!-- App Layer -->
+    <div id="app-layer">
+        <!-- Camera -->
+        <div id="app-camera" class="app-view">
+            <div class="app-header"><span>SAT-LINK-4 // SURVEILLANCE</span><span>[ESC] CLOSE</span></div>
+            <div id="camera-feed" style="flex:1; position:relative; overflow:hidden;">
+                <video id="webcam" autoplay playsinline></video>
+                <div style="position:absolute; top:10px; right:10px; color:red; animation:blink 1s infinite;">REC • LIVE</div>
+            </div>
+        </div>
+        
+        <!-- Hack Game -->
+        <div id="app-hack" class="app-view" style="align-items:center;">
+            <div class="app-header" style="width:100%"><span>BRUTE FORCE DECRYPTION</span><span>[ESC] ABORT</span></div>
+            <div id="hack-ui" style="text-align:center;">
+                <h3>TARGET: MAINFRAME LOCK</h3>
+                <p>GUESS THE 4-DIGIT PIN</p>
+                <div style="font-size: 2em; margin: 20px 0; letter-spacing: 10px;" id="hack-display">_ _ _ _</div>
+                <p id="hack-msg" class="dim">ATTEMPTS REMAINING: 5</p>
+                <div class="hack-grid" id="hack-keypad"></div>
+            </div>
+        </div>
+
+        <!-- Timer App -->
+        <div id="app-timer" class="app-view">
+            <div class="app-header" style="width:100%"><span>COUNTDOWN PROTOCOL</span><span>[ESC] ABORT</span></div>
+            <div id="timer-ui">
+                <p>SET DURATION:</p>
+                <div class="timer-inputs">
+                    <div class="timer-input-group">
+                        <input type="number" id="timer-h" class="timer-input" placeholder="00" min="0" max="99">
+                        <small>HRS</small>
+                    </div>
+                    <div class="timer-input-group">
+                        <input type="number" id="timer-m" class="timer-input" placeholder="00" min="0" max="59">
+                        <small>MIN</small>
+                    </div>
+                    <div class="timer-input-group">
+                        <input type="number" id="timer-s" class="timer-input" placeholder="00" min="0" max="59">
+                        <small>SEC</small>
+                    </div>
+                </div>
+                <button class="btn-start" onclick="window.os.timer.start()">INITIALIZE</button>
+            </div>
+            <div id="timer-running" style="display:none;">
+                <div class="timer-display" id="timer-countdown">00:00:00</div>
+                <p class="error-msg" id="timer-status" style="animation:blink 1s infinite">SEQUENCE RUNNING...</p>
+            </div>
+        </div>
+    </div>
+
+<script>
+/**
+ * Retro Spy Terminal OS v3.5
+ * Features: PWA Ready, Persistent VFS, Image Viewing, File Uploads, mkfile, Timer, Command History
+ */
+
+// Service Worker Registration for PWA
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+            .then(reg => console.log('SW Registered'))
+            .catch(err => console.log('SW Failed', err));
+    });
+}
+
+const STATES = { BOOT: 'BOOT', AUTH: 'AUTH', SHELL: 'SHELL', APP: 'APP' };
+const CONFIG = { agentId: '007-SPECTRE', password: 'skyfall', typingSpeed: 15, bootSpeed: 100 };
+
+// --- 1. Sound Engine ---
+class SoundFX {
+    constructor() {
+        this.ctx = null; this.enabled = false; this.muted = false;
+        this.computeInterval = null;
+    }
+    init() { if (!this.ctx) { this.ctx = new (window.AudioContext || window.webkitAudioContext)(); this.enabled = true; } }
+    playTone(freq, type, dur, vol = 0.1) {
+        if (!this.enabled || this.muted) return;
+        const osc = this.ctx.createOscillator(); const gain = this.ctx.createGain();
+        osc.type = type; osc.frequency.value = freq;
+        osc.connect(gain); gain.connect(this.ctx.destination);
+        osc.start();
+        gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + dur);
+        osc.stop(this.ctx.currentTime + dur);
+    }
+    
+    typeSound() { this.playTone(1200, 'square', 0.02, 0.05); }
+    enterSound() { this.playTone(200, 'sawtooth', 0.1, 0.1); }
+    errorSound() { this.playTone(100, 'sawtooth', 0.3, 0.2); }
+    
+    accessSound() { 
+        this.playTone(1000, 'sine', 0.1, 0.1); 
+        setTimeout(() => this.playTone(1500, 'sine', 0.2, 0.1), 100);
+    }
+
+    startComputing() {
+        if (!this.enabled || this.muted || this.computeInterval) return;
+        this.computeInterval = setInterval(() => {
+            const freq = 100 + Math.random() * 700; 
+            this.playTone(freq, 'square', 0.04, 0.03); 
+        }, 50);
+    }
+
+    stopComputing() {
+        if (this.computeInterval) {
+            clearInterval(this.computeInterval);
+            this.computeInterval = null;
+        }
+    }
+
+    tickSound() { this.playTone(800, 'square', 0.05, 0.05); }
+    alarmSound() { 
+        this.playTone(1000, 'sawtooth', 0.5, 0.2);
+        setTimeout(() => this.playTone(800, 'sawtooth', 0.5, 0.2), 500);
+    }
+
+    toggleMute() { this.muted = !this.muted; return this.muted; }
+}
+
+// --- 2. Virtual File System (VFS) with Persistence ---
+class VirtualFileSystem {
+    constructor(os) {
+        this.os = os;
+        this.currentPath = ['root'];
+        this.storageKey = 'spyos_vfs_data';
+        this.load();
+        
+        // Setup File Upload Listener
+        document.getElementById('file-uploader').addEventListener('change', (e) => this.handleFileUpload(e));
+    }
+
+    // Load from LocalStorage or use Default
+    load() {
+        const saved = localStorage.getItem(this.storageKey);
+        if (saved) {
+            try {
+                this.fs = JSON.parse(saved);
+            } catch(e) {
+                this.fs = this.defaultFS();
+            }
+        } else {
+            this.fs = this.defaultFS();
+        }
+    }
+
+    save() {
+        try {
+            localStorage.setItem(this.storageKey, JSON.stringify(this.fs));
+        } catch(e) {
+            this.os.ui.print("ERR: STORAGE QUOTA EXCEEDED. CANNOT SAVE.", 'error');
+        }
+    }
+
+    defaultFS() {
+        return {
+            'root': {
+                type: 'dir',
+                content: {
+                    'system': { type: 'dir', content: {
+                        'kernel.log': { type: 'file', content: 'KERNEL BOOT OK\nINTEGRITY: 100%' },
+                        'passwords.enc': { type: 'file', content: 'MTIzNA== (ENCODED)' }
+                    }},
+                    'intel': { type: 'dir', content: {
+                        'target_list.txt': { type: 'file', content: '1. The Architect\n2. Cipher\n3. Phantom' },
+                        'blueprint.asc': { type: 'file', content: '  /\\\n /  \\\n/____\\' }
+                    }},
+                    'users': { type: 'dir', content: {
+                        'agent': { type: 'dir', content: {
+                            'notes.txt': { type: 'file', content: 'Buy milk using crypto.' }
+                        }}
+                    }},
+                    'readme.txt': { type: 'file', content: 'Welcome to SpyOS v3.5\nUse "ls" to list files.\nUse "upload" to add files.\nUse "mkfile" to create notes.' }
+                }
+            }
+        };
+    }
+
+    resolve(path) {
+        let node = this.fs;
+        for (let p of this.currentPath) {
+            if (!node[p]) return null;
+            node = node[p].content;
+        }
+        return node;
+    }
+
+    ls() {
+        const node = this.resolve();
+        if (!node) { this.os.ui.print("ERR: FILE SYSTEM CORRUPTION.", 'error'); return; }
+        
+        const items = Object.keys(node);
+        if (items.length === 0) {
+            this.os.ui.print("NO FOLDERS DETECTED.", 'dim');
+            return;
+        }
+        
+        const output = items.map(k => {
+            const isDir = node[k].type === 'dir';
+            return `<span class="${isDir ? 'dir' : 'file'}">${k}${isDir ? '/' : ''}</span>`;
+        });
+        this.os.ui.print(output.join('  '));
+    }
+
+    cd(dirName) {
+        if (dirName === '..') {
+            if (this.currentPath.length > 1) this.currentPath.pop();
+        } else if (dirName === '/') {
+            this.currentPath = ['root'];
+        } else {
+            const node = this.resolve();
+            if (node && node[dirName] && node[dirName].type === 'dir') {
+                this.currentPath.push(dirName);
+            } else {
+                this.os.ui.print(`ERR: Directory '${dirName}' not found.`, 'error');
+            }
+        }
+        this.os.ui.setPrompt(this.getPrompt());
+    }
+
+    cat(fileName) {
+        const node = this.resolve();
+        if (node && node[fileName] && node[fileName].type === 'file') {
+            const content = node[fileName].content;
+            // Check if it's an image data URL
+            if (typeof content === 'string' && content.startsWith('data:image')) {
+                this.os.ui.printImage(content);
+            } else {
+                this.os.ui.print(content, 'info-msg');
+            }
+        } else {
+            this.os.ui.print(`ERR: File '${fileName}' not found.`, 'error');
+        }
+    }
+
+    mkdir(dirName) {
+        if (!dirName) { this.os.ui.print("USAGE: mkdir <foldername>", 'error'); return; }
+        const node = this.resolve();
+        if (!node) return;
+        
+        if (node[dirName]) {
+            this.os.ui.print("ERR: FOLDER ALREADY EXISTS.", 'error');
+        } else {
+            node[dirName] = { type: 'dir', content: {} };
+            this.save();
+            this.os.ui.print(`DIRECTORY '${dirName}' CREATED (SAVED).`);
+        }
+    }
+
+    mkfile(args) {
+        if (args.length < 2) { this.os.ui.print("USAGE: mkfile <filename> <content...>", 'error'); return; }
+        const fileName = args[0];
+        const content = args.slice(1).join(' ');
+        
+        const node = this.resolve();
+        if (node[fileName]) {
+            this.os.ui.print(`ERR: FILE '${fileName}' EXISTS.`, 'error');
+        } else {
+            node[fileName] = { type: 'file', content: content };
+            this.save();
+            this.os.ui.print(`FILE '${fileName}' SAVED TO STORAGE.`);
+        }
+    }
+
+    triggerUpload() {
+        const input = document.getElementById('file-uploader');
+        input.value = '';
+        input.click();
+        this.os.ui.print("INITIATING SECURE UPLINK...", 'dim');
+    }
+
+    handleFileUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            const node = this.resolve();
+            // Prevent overwriting directory with file
+            if (node[file.name] && node[file.name].type === 'dir') {
+                this.os.ui.print("ERR: NAME CONFLICT WITH DIRECTORY.", 'error');
+                return;
+            }
+            
+            node[file.name] = { type: 'file', content: e.target.result };
+            this.save();
+            this.os.ui.print(`UPLOAD COMPLETE: ${file.name} (${Math.round(file.size/1024)}KB)`);
+        };
+        
+        // Read text files as text, others (Images) as Data URL
+        if (file.type.match('text.*') || file.name.endsWith('.txt') || file.name.endsWith('.md')) {
+            reader.readAsText(file);
+        } else {
+            reader.readAsDataURL(file);
+        }
+    }
+
+    getPrompt() {
+        const pathStr = this.currentPath.length === 1 ? '/' : '/' + this.currentPath.slice(1).join('/');
+        return `USER@${pathStr}:>`;
+    }
+}
+
+// --- 3. Hack Minigame ---
+class HackGame {
+    constructor(os) {
+        this.os = os; this.pin = '0000'; this.input = ''; this.attempts = 5;
+    }
+    start() {
+        this.os.apps.openApp('hack');
+        this.pin = Math.floor(1000 + Math.random() * 9000).toString();
+        this.input = ''; this.attempts = 5;
+        this.renderKeypad(); this.updateDisplay();
+    }
+    renderKeypad() {
+        const pad = document.getElementById('hack-keypad'); pad.innerHTML = '';
+        [1,2,3,4,5,6,7,8,9,'CLR',0,'ENT'].forEach(key => {
+            const btn = document.createElement('div'); btn.className = 'hack-cell'; btn.textContent = key;
+            btn.onclick = () => this.handleKey(key); pad.appendChild(btn);
+        });
+    }
+    handleKey(key) {
+        this.os.sfx.typeSound();
+        if (key === 'CLR') this.input = '';
+        else if (key === 'ENT') this.checkWin();
+        else if (this.input.length < 4) this.input += key;
+        this.updateDisplay();
+    }
+    updateDisplay() {
+        document.getElementById('hack-display').textContent = this.input.padEnd(4, '_').split('').join(' ');
+        document.getElementById('hack-msg').textContent = `ATTEMPTS REMAINING: ${this.attempts}`;
+    }
+    checkWin() {
+        if (this.input === this.pin) {
+            document.getElementById('hack-msg').textContent = "ACCESS GRANTED.";
+            this.os.sfx.accessSound();
+            setTimeout(() => { this.os.apps.closeApp(); this.os.ui.print(`HACK SUCCESSFUL. REWARD: 500 CREDITS.`, 'system-msg'); }, 1500);
+        } else {
+            this.attempts--; this.input = ''; this.os.sfx.errorSound();
+            if (this.attempts <= 0) { this.os.apps.closeApp(); this.os.ui.print("HACK FAILED. LOCKDOWN INITIATED.", 'error'); }
+        }
+    }
+}
+
+// --- 4. Timer App ---
+class TimerApp {
+    constructor(os) {
+        this.os = os;
+        this.interval = null;
+        this.totalSeconds = 0;
+    }
+    
+    open() {
+        this.os.apps.openApp('timer');
+        document.getElementById('timer-ui').style.display = 'block';
+        document.getElementById('timer-running').style.display = 'none';
+        document.getElementById('timer-h').value = '';
+        document.getElementById('timer-m').value = '';
+        document.getElementById('timer-s').value = '';
+        document.getElementById('timer-h').focus();
+    }
+
+    start() {
+        const h = parseInt(document.getElementById('timer-h').value) || 0;
+        const m = parseInt(document.getElementById('timer-m').value) || 0;
+        const s = parseInt(document.getElementById('timer-s').value) || 0;
+        
+        this.totalSeconds = h * 3600 + m * 60 + s;
+        
+        if (this.totalSeconds <= 0) return;
+
+        document.getElementById('timer-ui').style.display = 'none';
+        document.getElementById('timer-running').style.display = 'block';
+        this.updateDisplay();
+        
+        this.interval = setInterval(() => {
+            this.totalSeconds--;
+            this.os.sfx.tickSound();
+            this.updateDisplay();
+            if (this.totalSeconds <= 0) {
+                this.stop();
+                this.alarm();
+            }
+        }, 1000);
+    }
+
+    updateDisplay() {
+        const h = Math.floor(this.totalSeconds / 3600);
+        const m = Math.floor((this.totalSeconds % 3600) / 60);
+        const s = this.totalSeconds % 60;
+        document.getElementById('timer-countdown').textContent = 
+            `${h.toString().padStart(2,'0')}:${m.toString().padStart(2,'0')}:${s.toString().padStart(2,'0')}`;
+    }
+
+    stop() {
+        if (this.interval) clearInterval(this.interval);
+    }
+
+    alarm() {
+        document.getElementById('timer-status').textContent = "SEQUENCE COMPLETE";
+        document.getElementById('timer-status').className = "error-msg";
+        let loop = 0;
+        const alarmInterval = setInterval(() => {
+            this.os.sfx.alarmSound();
+            loop++;
+            if (loop > 5) {
+                clearInterval(alarmInterval);
+                setTimeout(() => this.os.apps.closeApp(), 1000);
+            }
+        }, 1000);
+    }
+}
+
+// --- 5. Main OS ---
+class SpyOS {
+    constructor() {
+        this.sfx = new SoundFX();
+        this.ui = new TerminalUI(this);
+        this.apps = new AppManager(this);
+        this.vfs = new VirtualFileSystem(this);
+        this.hack = new HackGame(this);
+        this.timer = new TimerApp(this);
+        this.state = STATES.BOOT;
+        this.commandMap = this.buildCommands();
+        this.startTicker();
+        this.init();
+    }
+
+    buildCommands() {
+        return {
+            'help': { desc: 'List available commands', fn: () => this.cmdHelp() },
+            'manual': { desc: 'Detailed User Manual', fn: () => this.cmdManual() },
+            'cls': { desc: 'Clear screen', fn: () => this.ui.clear() },
+            'clear': { desc: 'Clear screen', fn: () => this.ui.clear() },
+            'status': { desc: 'System status', fn: () => this.cmdStatus() },
+            
+            // VFS
+            'ls': { desc: 'List files', fn: () => this.vfs.ls() },
+            'cd': { desc: 'Change dir', fn: (args) => this.vfs.cd(args[0]) },
+            'cat': { desc: 'Read file/image', fn: (args) => this.vfs.cat(args[0]) },
+            'mkdir': { desc: 'Make dir (Persistent)', fn: (args) => this.vfs.mkdir(args[0]) },
+            'mkfile': { desc: 'Create file <name> <txt>', fn: (args) => this.vfs.mkfile(args) },
+            'upload': { desc: 'Upload file from device', fn: () => this.vfs.triggerUpload() },
+            
+            // Tools
+            'encode': { desc: 'Base64 encrypt', fn: (args) => this.ui.print(btoa(args.join(' '))) },
+            'decode': { desc: 'Base64 decrypt', fn: (args) => { try { this.ui.print(atob(args[0])) } catch(e){ this.ui.print("ERR: Invalid hash", 'error')} } },
+            'log': { desc: '-w <text> to write, -r to read', fn: (args) => this.cmdLog(args) },
+            
+            // Apps
+            'cortex': { desc: 'Weather & Intel', fn: (args) => this.handleCortex(args.join(' ')) },
+            'hack': { desc: 'Brute force tool', fn: (args) => this.hack.start() },
+            'cam': { desc: 'Surveillance', fn: () => this.apps.openApp('camera') },
+            'timer': { desc: 'Countdown Timer', fn: () => this.timer.open() },
+            
+            // System
+            'theme': { desc: 'green/amber/blue', fn: (args) => this.cmdTheme(args[0]) },
+            'mute': { desc: 'Toggle sound', fn: () => { const m = this.sfx.toggleMute(); this.ui.print(m ? "SOUND MUTED" : "SOUND ACTIVE"); } },
+            'logout': { desc: 'End session', fn: () => this.logout() }
+        };
+    }
+
+    init() {
+        this.ui.showInput(false);
+        const logs = ["INITIALIZING v3.5...", "MOUNTING VFS (PERSISTENT)...", "LOADING MODULES...", "SYSTEM READY."];
+        let delay = 0;
+        logs.forEach((log, i) => {
+            setTimeout(() => this.ui.print(log), delay);
+            delay += Math.random() * CONFIG.bootSpeed + 100;
+        });
+        setTimeout(() => this.transitionToAuth(), delay + 500);
+    }
+
+    transitionToAuth() {
+        this.state = STATES.AUTH;
+        this.ui.clear();
+        this.ui.print("--- SECURE TERMINAL ACCESS ---", 'system-msg');
+        this.ui.setPrompt("PASSWORD:>");
+        this.ui.showInput(true);
+        this.ui.focus();
+    }
+
+    transitionToShell() {
+        this.state = STATES.SHELL;
+        this.ui.clear();
+        this.sfx.accessSound();
+        this.ui.print(`WELCOME AGENT.`, 'system-msg');
+        this.ui.print("Type 'help' for available protocols.");
+        this.ui.print("Type 'manual' for detailed instructions.", 'dim');
+        this.ui.setPrompt(this.vfs.getPrompt());
+    }
+
+    handleInput(text) {
+        if (!text) return;
+        
+        if (this.state === STATES.AUTH) {
+            if (text === CONFIG.password) {
+                this.ui.print("ACCESS GRANTED.", 'system-msg');
+                setTimeout(() => this.transitionToShell(), 500);
+            } else {
+                this.sfx.errorSound();
+                this.ui.print("ACCESS DENIED.", 'error');
+            }
+            return;
+        }
+
+        if (this.state === STATES.SHELL) {
+            const [cmd, ...args] = text.trim().split(/\s+/);
+            if (this.commandMap[cmd.toLowerCase()]) {
+                this.commandMap[cmd.toLowerCase()].fn(args);
+            } else {
+                this.sfx.errorSound();
+                this.ui.print(`ERR: UNKNOWN COMMAND '${cmd}'`, 'error');
+            }
+        }
+    }
+
+    cmdHelp() {
+        this.ui.print("--- PROTOCOLS ---", 'system-msg');
+        Object.keys(this.commandMap).forEach(k => {
+            this.ui.print(`${k.padEnd(10)} : ${this.commandMap[k].desc}`);
+        });
+    }
+
+    cmdManual() {
+        this.ui.print("--- AGENT FIELD MANUAL v3.5 ---", 'system-msg');
+        
+        const sections = [
+            {
+                title: "1. FILE SYSTEM (VFS)",
+                content: [
+                    "NAVIGATE: 'cd <name>', 'cd ..', 'ls'.",
+                    "MANAGE: 'mkdir <name>' (creates persistent folder).",
+                    "CREATE: 'mkfile <name> <text>' to create text files.",
+                    "UPLOAD: 'upload' to save files from device to current folder.",
+                    "READ: 'cat <filename>' to display contents."
+                ]
+            },
+            {
+                title: "2. CORTEX INTELLIGENCE",
+                content: [
+                    "WEATHER: 'cortex weather <city>' for satellite report.",
+                    "SEARCH: 'cortex <query>' to access open web via uplink."
+                ]
+            },
+            {
+                title: "3. CRYPTOGRAPHY",
+                content: [
+                    "ENCODE: 'encode <message>' -> Returns Base64 string.",
+                    "DECODE: 'decode <string>' -> Reveals secret message."
+                ]
+            },
+            {
+                title: "4. TIMER & TOOLS",
+                content: [
+                    "TIMER: Type 'timer' to open the Countdown App.",
+                    "LOGS: 'log -w <text>' saves note locally. 'log -r' reads it."
+                ]
+            }
+        ];
+
+        sections.forEach(sec => {
+            this.ui.print(`\n[ ${sec.title} ]`, 'info-msg');
+            sec.content.forEach(line => this.ui.print(` > ${line}`, 'dim'));
+        });
+        
+        this.ui.print("\nEND OF MANUAL.", 'system-msg');
+    }
+
+    cmdStatus() {
+        this.ui.print(`OS: SpyOS v3.5`);
+        this.ui.print(`USER: ${CONFIG.agentId}`);
+        this.ui.print(`TIME: ${new Date().toLocaleTimeString()}`);
+    }
+
+    cmdLog(args) {
+        if (args[0] === '-w') {
+            const note = args.slice(1).join(' ');
+            localStorage.setItem('spy_log', note);
+            this.ui.print("NOTE SAVED TO LOCAL STORAGE.");
+        } else if (args[0] === '-r') {
+            const note = localStorage.getItem('spy_log');
+            this.ui.print(note ? `LOG: ${note}` : "NO LOGS FOUND.");
+        } else {
+            this.ui.print("Usage: log -w <text> OR log -r", 'info-msg');
+        }
+    }
+
+    cmdTheme(color) {
+        const root = document.documentElement;
+        if (color === 'amber') {
+            root.style.setProperty('--term-color', '#ffb000');
+            root.style.setProperty('--term-color-dim', '#996600');
+            root.style.setProperty('--term-glow', '0 0 10px rgba(255, 176, 0, 0.7)');
+        } else if (color === 'blue') {
+            root.style.setProperty('--term-color', '#00ccff');
+            root.style.setProperty('--term-color-dim', '#005588');
+            root.style.setProperty('--term-glow', '0 0 10px rgba(0, 204, 255, 0.7)');
+        } else { // Green default
+            root.style.setProperty('--term-color', '#33ff00');
+            root.style.setProperty('--term-color-dim', '#1a8000');
+            root.style.setProperty('--term-glow', '0 0 10px rgba(51, 255, 0, 0.7)');
+        }
+        this.ui.print(`THEME SET TO ${color || 'GREEN'}.`);
+    }
+
+    async handleCortex(query) {
+        if (!query) { this.ui.print("CORTEX: ENTER QUERY (e.g. 'cortex weather London')"); return; }
+        
+        this.ui.print("CONTACTING CORTEX...", 'dim');
+        
+        this.sfx.startComputing();
+        await new Promise(r => setTimeout(r, 1500));
+        this.sfx.stopComputing();
+
+        if (query.includes('weather')) {
+            try {
+                const res = await fetch('https://api.open-meteo.com/v1/forecast?latitude=51.50&longitude=-0.12&current_weather=true');
+                const data = await res.json();
+                const t = data.current_weather.temperature;
+                const w = data.current_weather.windspeed;
+                this.ui.print(`> WEATHER REPORT (LONDON HQ): ${t}°C, WIND: ${w}km/h`, 'info-msg');
+            } catch(e) {
+                this.ui.print("> ERR: WEATHER SATELLITE OFFLINE.", 'error');
+            }
+        } else {
+            this.ui.print("> QUERY UNKNOWN. SEARCHING OPEN WEB...", 'dim');
+            setTimeout(() => window.open(`https://www.google.com/search?q=${encodeURIComponent(query)}`, '_blank'), 1000);
+        }
+    }
+
+    startTicker() {
+        const headlines = [
+            "INTERPOL ISSUES RED NOTICE FOR HACKER 'GHOST'",
+            "CRYPTOCURRENCY HEIST DRAINS 500M FROM NORTHERN BANK",
+            "NEW ZERO-DAY EXPLOIT FOUND IN GLOBAL SATELLITE GRID",
+            "WEATHER WARNING: ACID RAIN IN SECTOR 7",
+            "SPECTRE NETWORK ACTIVITY DETECTED IN ASIA"
+        ];
+        document.getElementById('ticker-text').textContent = headlines.join("  +++  ") + "  +++  ";
+    }
+
+    logout() {
+        this.ui.print("LOGGING OFF...", 'system-msg');
+        setTimeout(() => location.reload(), 1000);
+    }
+}
+
+// --- 6. UI Helpers ---
+class TerminalUI {
+    constructor(os) {
+        this.os = os;
+        this.out = document.getElementById('output-history');
+        this.inp = document.getElementById('input-line');
+        this.hidden = document.getElementById('hidden-input');
+        this.prompt = document.getElementById('prompt-label');
+        this.renderInp = document.getElementById('rendered-input');
+        this.cont = document.getElementById('terminal');
+
+        // Command History
+        this.history = [];
+        this.historyIndex = 0;
+
+        document.addEventListener('click', () => { this.os.sfx.init(); this.focus(); });
+        this.hidden.addEventListener('input', () => { 
+            this.os.sfx.typeSound(); 
+            this.renderInp.textContent = this.os.state === STATES.AUTH ? '*'.repeat(this.hidden.value.length) : this.hidden.value; 
+            this.scroll();
+        });
+        this.hidden.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') { 
+                const val = this.hidden.value; 
+                this.hidden.value = ''; 
+                this.renderInp.textContent = '';
+                
+                // History Management
+                if (val && this.os.state === STATES.SHELL) {
+                    // Don't duplicate consecutive commands
+                    if (this.history.length === 0 || this.history[this.history.length - 1] !== val) {
+                        this.history.push(val);
+                    }
+                    this.historyIndex = this.history.length;
+                }
+
+                this.os.sfx.enterSound();
+                if (this.os.state !== STATES.AUTH) this.print(`${this.prompt.textContent} ${val}`, 'dim');
+                this.os.handleInput(val);
+            } else if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                if (this.history.length > 0 && this.historyIndex > 0) {
+                    this.historyIndex--;
+                    this.hidden.value = this.history[this.historyIndex];
+                    this.renderInp.textContent = this.hidden.value;
+                    this.scroll();
+                }
+            } else if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                if (this.historyIndex < this.history.length) {
+                    this.historyIndex++;
+                    if (this.historyIndex === this.history.length) {
+                        this.hidden.value = '';
+                    } else {
+                        this.hidden.value = this.history[this.historyIndex];
+                    }
+                    this.renderInp.textContent = this.hidden.value;
+                    this.scroll();
+                }
+            }
+        });
+        window.addEventListener('resize', () => this.scroll());
+    }
+    
+    focus() { if (this.os.state !== STATES.APP) this.hidden.focus(); }
+    clear() { this.out.innerHTML = ''; }
+    setPrompt(txt) { this.prompt.textContent = txt; }
+    showInput(bool) { this.inp.style.display = bool ? 'flex' : 'none'; this.scroll(); }
+    
+    print(txt, cls = '') {
+        const d = document.createElement('div');
+        d.className = `log-line ${cls}`;
+        d.textContent = txt;
+        this.out.appendChild(d);
+        this.scroll();
+    }
+
+    printImage(src) {
+        const d = document.createElement('div');
+        d.className = 'log-line';
+        d.style.marginTop = '10px';
+        d.style.marginBottom = '10px';
+
+        // Container for tinting
+        const wrapper = document.createElement('div');
+        wrapper.style.display = 'inline-block';
+        wrapper.style.backgroundColor = 'var(--term-color)'; // Theme color
+        wrapper.style.padding = '4px'; // Border effect
+        wrapper.style.border = '1px solid var(--term-color)';
+        wrapper.style.boxShadow = '0 0 10px var(--term-color)';
+
+        // Process image for pixelation
+        const img = new Image();
+        img.onload = () => {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            // Downscale for pixelation (fixed width 320px gives good retro feel)
+            const targetW = 320; 
+            const scale = targetW / img.width;
+            const targetH = img.height * scale;
+            
+            canvas.width = targetW;
+            canvas.height = targetH;
+            
+            // Draw low res
+            ctx.imageSmoothingEnabled = false;
+            ctx.drawImage(img, 0, 0, targetW, targetH);
+            
+            const lowRes = document.createElement('img');
+            lowRes.src = canvas.toDataURL();
+            lowRes.style.width = '100%';
+            lowRes.style.maxWidth = '100%';
+            lowRes.style.display = 'block';
+            
+            // Retro Styles
+            lowRes.style.imageRendering = 'pixelated';
+            // Tinting magic: Grayscale high contrast, then multiply with the green background
+            lowRes.style.filter = 'grayscale(100%) contrast(1.5) brightness(1.2)';
+            lowRes.style.mixBlendMode = 'multiply';
+            
+            wrapper.appendChild(lowRes);
+            d.appendChild(wrapper);
+            this.scroll();
+        };
+        img.src = src;
+        
+        this.out.appendChild(d);
+        this.scroll(); // Scroll initially for the container
+    }
+    
+    scroll() {
+        window.requestAnimationFrame(() => {
+            this.cont.scrollTop = this.cont.scrollHeight;
+            this.inp.scrollIntoView({ block: "end", inline: "nearest" });
+        });
+    }
+}
+
+// --- 7. App Manager ---
+class AppManager {
+    constructor(os) {
+        this.os = os;
+        this.layer = document.getElementById('app-layer');
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && this.os.state === STATES.APP) this.closeApp(); });
+    }
+    openApp(id) {
+        this.os.state = STATES.APP;
+        document.getElementById('terminal').classList.add('blurred');
+        this.layer.style.display = 'block';
+        document.querySelectorAll('.app-view').forEach(e => e.style.display = 'none');
+        document.getElementById(`app-${id}`).style.display = 'flex';
+        if (id === 'camera') this.startCam();
+    }
+    closeApp() {
+        this.os.state = STATES.SHELL;
+        document.getElementById('terminal').classList.remove('blurred');
+        this.layer.style.display = 'none';
+        this.stopCam();
+        if (this.os.timer) this.os.timer.stop(); 
+        this.os.ui.focus();
+    }
+    async startCam() {
+        try { 
+            const s = await navigator.mediaDevices.getUserMedia({video:true}); 
+            document.getElementById('webcam').srcObject = s; 
+            this.stream = s;
+        } catch(e) { /* Ignore */ }
+    }
+    stopCam() { if (this.stream) this.stream.getTracks().forEach(t => t.stop()); }
+}
+
+window.addEventListener('DOMContentLoaded', () => window.os = new SpyOS());
+
+</script>
+</body>
+</html>
