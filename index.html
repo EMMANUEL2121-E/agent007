@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Retro Spy Terminal OS v3.5</title>
+    <title>Retro Spy Terminal OS v3.6</title>
     
     <!-- PWA Settings -->
     <link rel="manifest" href="manifest.json">
@@ -39,7 +39,6 @@
             color: var(--term-color);
             -webkit-font-smoothing: none;
             transition: color 0.5s, background-color 0.5s;
-            /* Disable pull-to-refresh on mobile */
             overscroll-behavior-y: none;
         }
 
@@ -93,7 +92,11 @@
         /* --- Input Area --- */
         #input-line { display: flex; align-items: center; margin-top: 10px; }
         .prompt { margin-right: 8px; font-weight: bold; }
-        #hidden-input { position: absolute; opacity: 0; top: 0; left: 0; height: 0; width: 0; }
+        /* Aggressive resetting for the hidden input to avoid mobile zoom/styling */
+        #hidden-input { 
+            position: absolute; opacity: 0; top: 0; left: 0; height: 0; width: 0; 
+            font-size: 16px; /* Prevents iOS zoom */
+        }
         
         .cursor {
             display: inline-block; width: 10px; height: 1.2em;
@@ -166,6 +169,7 @@
                 <span id="prompt-label" class="prompt">></span>
                 <span id="rendered-input"></span><span class="cursor"></span>
             </div>
+            <!-- Enhanced Mobile Input Attributes -->
             <input type="text" id="hidden-input" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
         </div>
 
@@ -231,11 +235,11 @@
 
 <script>
 /**
- * Retro Spy Terminal OS v3.5
- * Features: PWA Ready, Persistent VFS, Image Viewing, File Uploads, mkfile, Timer, Command History
+ * Retro Spy Terminal OS v3.6
+ * Mobile Fixes: Auth Trimming, Input Handling
  */
 
-// Service Worker Registration for PWA
+// Service Worker Registration
 if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js')
@@ -674,7 +678,9 @@ class SpyOS {
         if (!text) return;
         
         if (this.state === STATES.AUTH) {
-            if (text === CONFIG.password) {
+            // FIX: Trim input and allow case-insensitive match for mobile
+            const cleanText = text.trim();
+            if (cleanText === CONFIG.password || cleanText.toLowerCase() === CONFIG.password) {
                 this.ui.print("ACCESS GRANTED.", 'system-msg');
                 setTimeout(() => this.transitionToShell(), 500);
             } else {
